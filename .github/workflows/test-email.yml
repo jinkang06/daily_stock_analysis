@@ -1,4 +1,4 @@
-name: 测试邮件发送
+name: test-email
 
 on:
   workflow_dispatch:
@@ -8,14 +8,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 测试 SMTP 邮件
+      - name: Test SMTP email
         env:
           EMAIL_SENDER: ${{ vars.EMAIL_SENDER || secrets.EMAIL_SENDER }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_RECEIVERS: ${{ vars.EMAIL_RECEIVERS || secrets.EMAIL_RECEIVERS }}
-          EMAIL_SENDER_NAME: ${{ vars.EMAIL_SENDER_NAME || secrets.EMAIL_SENDER_NAME || 'daily_stock_analysis股票分析助手' }}
+          EMAIL_SENDER_NAME: ${{ vars.EMAIL_SENDER_NAME || secrets.EMAIL_SENDER_NAME || 'daily_stock_analysis' }}
+        shell: bash
         run: |
-          python - <<'PY'
+          python3 - <<'PY'
           import os
           import smtplib
           import ssl
@@ -23,76 +24,63 @@ jobs:
           from email.header import Header
           from email.utils import formataddr
 
-          sender = os.getenv("EMAIL_SENDER", "").strip()
-          password = os.getenv("EMAIL_PASSWORD", "").strip()
-          receivers_raw = os.getenv("EMAIL_RECEIVERS", "").strip()
-          sender_name = os.getenv("EMAIL_SENDER_NAME", "daily_stock_analysis股票分析助手").strip()
+          sender = os.environ.get("EMAIL_SENDER", "").strip()
+          password = os.environ.get("EMAIL_PASSWORD", "").strip()
+          receivers_raw = os.environ.get("EMAIL_RECEIVERS", "").strip()
+          sender_name = os.environ.get("EMAIL_SENDER_NAME", "daily_stock_analysis").strip()
 
-          print("========== 邮件配置检查 ==========")
-          print("EMAIL_SENDER:", sender if sender else "未配置")
-          print("EMAIL_PASSWORD:", "已配置，长度=" + str(len(password)) if password else "未配置")
-          print("EMAIL_RECEIVERS:", receivers_raw if receivers_raw else "未配置")
+          print("========== EMAIL CONFIG ==========")
+          print("EMAIL_SENDER:", sender or "NOT SET")
+          print("EMAIL_PASSWORD:", "SET, length=" + str(len(password)) if password else "NOT SET")
+          print("EMAIL_RECEIVERS:", receivers_raw or "NOT SET")
           print("EMAIL_SENDER_NAME:", sender_name)
-          print("=================================")
+          print("==================================")
 
           if not sender:
-              raise SystemExit("❌ EMAIL_SENDER 未配置")
+              raise SystemExit("EMAIL_SENDER is not set")
           if not password:
-              raise SystemExit("❌ EMAIL_PASSWORD 未配置")
+              raise SystemExit("EMAIL_PASSWORD is not set")
           if not receivers_raw:
-              raise SystemExit("❌ EMAIL_RECEIVERS 未配置")
+              raise SystemExit("EMAIL_RECEIVERS is not set")
 
           domain = sender.split("@")[-1].lower()
 
-          smtp_map = {
-              "163.com": ("smtp.163.com", 465),
-              "126.com": ("smtp.126.com", 465),
-              "qq.com": ("smtp.qq.com", 465),
-              "gmail.com": ("smtp.gmail.com", 465),
-              "outlook.com": ("smtp-mail.outlook.com", 587),
-              "hotmail.com": ("smtp-mail.outlook.com", 587),
-          }
+          if domain == "163.com":
+              host, port = "smtp.163.com", 465
+          elif domain == "126.com":
+              host, port = "smtp.126.com", 465
+          elif domain == "qq.com":
+              host, port = "smtp.qq.com", 465
+          elif domain == "gmail.com":
+              host, port = "smtp.gmail.com", 465
+          else:
+              host, port = "smtp." + domain, 465
 
-          host, port = smtp_map.get(domain, ("smtp." + domain, 465))
-          print(f"自动识别 SMTP: {domain} -> {host}:{port}")
+          print("SMTP server:", host, port)
 
           receivers = [x.strip() for x in receivers_raw.replace(";", ",").split(",") if x.strip()]
-          print("收件人数量:", len(receivers))
+          print("Receivers:", receivers)
 
-          body = """这是一封 GitHub Actions SMTP 测试邮件。
-
-如果你收到这封邮件，说明 EMAIL_SENDER / EMAIL_PASSWORD / EMAIL_RECEIVERS 基本配置正确。
-"""
-
-          msg = MIMEText(body, "plain", "utf-8")
+          msg = MIMEText("This is a GitHub Actions SMTP test email.", "plain", "utf-8")
           msg["From"] = formataddr((str(Header(sender_name, "utf-8")), sender))
           msg["To"] = ", ".join(receivers)
-          msg["Subject"] = Header("GitHub Actions 邮件测试", "utf-8")
+          msg["Subject"] = str(Header("GitHub Actions SMTP Test", "utf-8"))
 
           try:
-              if port == 465:
-                  context = ssl.create_default_context()
-                  with smtplib.SMTP_SSL(host, port, context=context, timeout=20) as server:
-                      print("SMTP_SSL 已连接")
-                      server.login(sender, password)
-                      print("SMTP 登录成功")
-                      server.sendmail(sender, receivers, msg.as_string())
-                      print("✅ 测试邮件发送成功")
-              else:
-                  with smtplib.SMTP(host, port, timeout=20) as server:
-                      print("SMTP 已连接")
-                      server.starttls(context=ssl.create_default_context())
-                      print("STARTTLS 成功")
-                      server.login(sender, password)
-                      print("SMTP 登录成功")
-                      server.sendmail(sender, receivers, msg.as_string())
-                      print("✅ 测试邮件发送成功")
+              context = ssl.create_default_context()
+              with smtplib.SMTP_SSL(host, port, context=context, timeout=20) as server:
+                  print("SMTP connected")
+                  server.login(sender, password)
+                  print("SMTP login succeeded")
+                  server.sendmail(sender, receivers, msg.as_string())
+                  print("EMAIL_SEND_SUCCESS")
           except smtplib.SMTPAuthenticationError as e:
-              print("❌ SMTP 认证失败")
-              print("错误码:", e.smtp_code)
-              print("错误信息:", e.smtp_error.decode(errors="ignore") if isinstance(e.smtp_error, bytes) else e.smtp_error)
+              print("SMTP_AUTH_FAILED")
+              print("smtp_code:", e.smtp_code)
+              print("smtp_error:", e.smtp_error)
               raise
           except Exception as e:
-              print("❌ 邮件发送异常:", repr(e))
+              print("EMAIL_SEND_FAILED")
+              print(repr(e))
               raise
           PY
